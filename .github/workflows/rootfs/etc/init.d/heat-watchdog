@@ -1,0 +1,19 @@
+#!/sbin/openrc-run
+
+name="Heat Watchdog"
+description="Reboot Pi if temperature > 75°C"
+
+command="/usr/local/bin/heat-watchdog.sh"
+command_user="root"
+pidfile="/var/run/heat-watchdog.pid"
+command_background="yes"
+
+depend() {
+    need net
+    after localmount
+}
+
+start_pre() {
+    # nothing—script handles everything
+    :
+}
