@@ -144,7 +144,14 @@ jobs:
           https://dl-cdn.alpinelinux.org/alpine/v3.19/community
           EOF
 
-          apk update
+                    # Retry until `apk update` succeeds (handles temporary CDN flakiness)
+          counter=0
+          until apk update; do
+            counter=$((counter + 1))
+            echo "⚠️ apk update failed (attempt $counter). Retrying in 5s..."
+            sleep 5
+          done
+
 
           # Install essential packages
           apk add --no-cache \
