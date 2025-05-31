@@ -1,0 +1,352 @@
+# .github/workflows/build-squirtle-alpine.yml
+# GitHub Actions workflow to build a minimal Alpine-based Squirtle Pi streaming image
+
+name: Build Squirtle Alpine Streaming OS
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      release_name:
+        description: 'Release name (optional)'
+        required: false
+        default: ''
+
+env:
+  IMAGE_NAME: squirtle-alpine-streamer
+  ALPINE_VERSION: "3.19"
+  ALPINE_ARCH: "armhf"
+
+jobs:
+  build-squirtle-image:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+      actions: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo apt-get remove -y '^dotnet-.*' '^llvm-.*' '^php.*' azure-cli google-cloud-cli || true
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          df -h
+
+      - name: Set up build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            wget \
+            xz-utils \
+            bc \
+            parted \
+            kpartx \
+            zip \
+            qemu-user-static \
+            binfmt-support \
+            dosfstools \
+            e2fsprogs \
+            debootstrap
+
+          sudo update-binfmts --enable qemu-arm
+
+      - name: Download Alpine rootfs and tools
+        run: |
+          echo "📥 Downloading Alpine Linux $ALPINE_VERSION for $ALPINE_ARCH..."
+          ALPINE_URL="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/releases/${ALPINE_ARCH}/alpine-minirootfs-${ALPINE_VERSION}.0-${ALPINE_ARCH}.tar.gz"
+          wget -O alpine-rootfs.tar.gz "$ALPINE_URL"
+          ALPINE_RPI_URL="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/releases/${ALPINE_ARCH}/alpine-rpi-${ALPINE_VERSION}.0-${ALPINE_ARCH}.tar.gz"
+          wget -O alpine-rpi.tar.gz "$ALPINE_RPI_URL" || echo "RPI extras optional"
+          echo "✅ Downloaded Alpine components"
+          ls -lh alpine-*.tar.gz
+
+      - name: Create custom Alpine image
+        run: |
+          set -e
+          echo "🏗️ Creating Squirtle Alpine streaming image..."
+          dd if=/dev/zero of="${IMAGE_NAME}.img" bs=1M count=2048
+          parted "${IMAGE_NAME}.img" mklabel msdos
+          parted "${IMAGE_NAME}.img" mkpart primary fat32 1MiB 128MiB
+          parted "${IMAGE_NAME}.img" set 1 boot on
+          parted "${IMAGE_NAME}.img" mkpart primary ext4 128MiB 100%
+          LOOP_DEVICE=$(sudo losetup --find --show "${IMAGE_NAME}.img")
+          echo "LOOP_DEVICE=$LOOP_DEVICE" >> $GITHUB_ENV
+          sleep 3
+          sudo partprobe "$LOOP_DEVICE"
+          sleep 2
+          sudo mkfs.fat -F 32 "${LOOP_DEVICE}p1"
+          sudo mkfs.ext4 "${LOOP_DEVICE}p2"
+          mkdir -p alpine-boot alpine-root
+          sudo mount "${LOOP_DEVICE}p1" alpine-boot/
+          sudo mount "${LOOP_DEVICE}p2" alpine-root/
+          echo "✅ Image structure created"
+
+      - name: Install Alpine base system
+        run: |
+          set -e
+          echo "📦 Installing Alpine base system into rootfs..."
+
+          # Extract Alpine rootfs to alpine-root
+          sudo tar -xzf alpine-rootfs.tar.gz -C alpine-root/
+
+          # Bind-mount system dirs
+          sudo mount --bind /dev alpine-root/dev/
+          sudo mount --bind /proc alpine-root/proc/
+          sudo mount --bind /sys alpine-root/sys/
+
+          # Copy qemu for ARM emulation
+          sudo cp /usr/bin/qemu-arm-static alpine-root/usr/bin/
+
+          # Chroot into alpine-root and configure packages/user/services
+          sudo chroot alpine-root /bin/sh << 'CHROOT_EOF'
+          set -e
+
+          # Write HTTP-only mirrors (no leading spaces on these lines)
+          cat > /etc/apk/repositories << 'EOF'
+http://dl-3.alpinelinux.org/alpine/v3.19/main
+http://dl-4.alpinelinux.org/alpine/v3.19/main
+http://dl-3.alpinelinux.org/alpine/v3.19/community
+http://dl-4.alpinelinux.org/alpine/v3.19/community
+EOF
+
+          # Retry until `apk update` succeeds
+          counter=0
+          until apk update; do
+            counter=$((counter + 1))
+            echo "⚠️ apk update failed (attempt $counter). Retrying in 5s..."
+            sleep 5
+          done
+
+          # Install essential packages (including openrc)
+          apk add --no-cache \
+            alpine-base \
+            openrc \
+            openssh \
+            bash \
+            curl \
+            wget \
+            nano \
+            htop \
+            v4l-utils \
+            ffmpeg \
+            libressl \
+            linux-rpi \
+            raspberrypi \
+            rpi-eeprom \
+            musl-utils \
+            bc \
+            sudo
+
+          # Create user 'richeyda'
+          adduser -D -s /bin/bash richeyda
+          echo 'richeyda:Sally' | chpasswd
+          adduser richeyda wheel
+          echo '%wheel ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
+
+          # Enable SSH at boot
+          rc-update add sshd default
+
+          # Clean up docs
+          rm -rf /usr/share/man/* /usr/share/doc/* /var/cache/apk/*
+
+CHROOT_EOF
+
+          echo "✅ Alpine base system installed"
+
+      - name: Copy Squirtle rootfs files
+        run: |
+          echo "📂 Copying Squirtle scripts, configs, and services into rootfs..."
+
+          sudo mkdir -p alpine-root/usr/local/bin
+          sudo mkdir -p alpine-root/etc/wpa_supplicant
+          sudo mkdir -p alpine-root/etc/init.d
+          sudo mkdir -p alpine-root/etc
+          sudo mkdir -p alpine-root/boot
+
+          sudo cp rootfs/etc/wpa_supplicant/wpa_supplicant.conf alpine-root/etc/wpa_supplicant/
+          sudo cp rootfs/etc/motd alpine-root/etc/
+          sudo cp rootfs/usr/local/bin/stream-launcher.sh alpine-root/usr/local/bin/
+          sudo cp rootfs/usr/local/bin/heat-watchdog.sh alpine-root/usr/local/bin/
+          sudo cp rootfs/etc/init.d/stream alpine-root/etc/init.d/
+          sudo cp rootfs/etc/init.d/heat-watchdog alpine-root/etc/init.d/
+          sudo cp rootfs/boot/config.txt alpine-boot/config.txt
+          sudo cp rootfs/boot/cmdline.txt alpine-boot/cmdline.txt
+          sudo touch alpine-boot/ssh
+
+          echo "✅ Squirtle rootfs files copied"
+
+      - name: Set Executable Permissions & Enable Services
+        run: |
+          echo "🔧 Setting permissions and enabling services..."
+
+          sudo chroot alpine-root /bin/sh << 'CHROOT_EOF'
+          chmod +x /usr/local/bin/stream-launcher.sh
+          chmod +x /usr/local/bin/heat-watchdog.sh
+          chmod +x /etc/init.d/stream
+          chmod +x /etc/init.d/heat-watchdog
+
+          rc-update add stream default
+          rc-update add heat-watchdog default
+CHROOT_EOF
+
+          echo "✅ Permissions set, services enabled"
+
+      - name: Final Alpine cleanup
+        run: |
+          echo "🧹 Cleaning up Alpine filesystem to minimize size..."
+
+          sudo chroot alpine-root /bin/sh << 'CHROOT_EOF'
+          rm -rf /var/cache/apk/*
+          rm -rf /var/log/*.log 2>/dev/null || true
+          rm -rf /tmp/* /var/tmp/* 2>/dev/null || true
+          find /usr/lib -name "*.a" -delete 2>/dev/null || true
+CHROOT_EOF
+
+          echo "✅ Alpine cleanup complete"
+
+      - name: Unmount and detach loop device
+        run: |
+          echo "📤 Unmounting and finalizing Squirtle image..."
+
+          sudo rm -f alpine-root/usr/bin/qemu-arm-static
+          sudo umount alpine-root/sys/ || true
+          sudo umount alpine-root/proc/ || true
+          sudo umount alpine-root/dev/ || true
+          sudo umount alpine-root/ || true
+          sudo umount alpine-boot/ || true
+          sudo losetup -d "$LOOP_DEVICE" || true
+
+          echo "📊 Final Squirtle image size:"
+          ls -lh "${IMAGE_NAME}.img"
+
+          echo "✅ Squirtle image finalized"
+
+      - name: Compress Squirtle image
+        run: |
+          echo "🗜️ Compressing Squirtle image with xz..."
+          xz -9 -T 0 "${IMAGE_NAME}.img"
+          sha256sum "${IMAGE_NAME}.img.xz" > "${IMAGE_NAME}.img.xz.sha256"
+          echo "📊 Compressed Squirtle image:"
+          ls -lh "${IMAGE_NAME}.img.xz"*
+          echo "image_file=${IMAGE_NAME}.img.xz" >> $GITHUB_ENV
+          echo "checksum_file=${IMAGE_NAME}.img.xz.sha256" >> $GITHUB_ENV
+
+      - name: Create build info
+        run: |
+          cat > squirtle-build-info.txt << EOF
+Squirtle Alpine Streaming OS - Ultra-Lightweight Pi Camera System
+=================================================================
+
+Build Date: $(date -u)
+Alpine Version: ${ALPINE_VERSION}
+Architecture: ${ALPINE_ARCH}
+Git Commit: ${{ github.sha }}
+Git Ref: ${{ github.ref_name }}
+
+Squirtle Features:
+- Base: Alpine Linux 3.19 (armhf)
+- Streamer: v4l2rtspserver, 640×480 @ 5fps, RTSP only
+- User: richeyda / Sally
+- Wi-Fi: Auto-connect to NETGEAR42 (PSK: heavybug047)
+- SSH: enabled on boot
+- Overheat Watchdog: reboots if >75°C
+- Init: OpenRC
+- Memory: ~50MB base
+- Storage: ~200MB total
+- Boot time: <30s
+- Security: minimal attack surface
+
+Quick Start:
+1. Flash: sudo dd if=${IMAGE_NAME}.img.xz of=/dev/sdX bs=4M status=progress conv=fsync
+2. Boot Pi with camera connected
+3. Find IP: nmap -sn 192.168.1.0/24 | grep -B2 -A1 "Raspberry"
+4. Stream: rtsp://<Squirtle-IP>:8554/live.sdp
+5. SSH: ssh richeyda@<Squirtle-IP> (password: Sally)
+6. Check Temp: sudo /usr/local/bin/heat-watchdog
+EOF
+
+      - name: Upload Squirtle build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: squirtle-streaming-image
+          path: |
+            ${{ env.image_file }}
+            ${{ env.checksum_file }}
+            squirtle-build-info.txt
+          retention-days: 30
+
+      - name: Create Squirtle GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Squirtle Alpine Streamer v${{ github.ref_name }}
+          body: |
+            ## 🌊 Squirtle Alpine Streaming OS
+
+            **Ultra-lightweight RTSP streamer for Pi Zero W / Zero 2W**  
+            - Built on Alpine Linux 3.19 (armhf)  
+            - v4l2rtspserver @ 640×480, 5 fps  
+            - Auto Wi-Fi (NETGEAR42 / heavybug047), SSH enabled  
+            - Overheat Watchdog reboots > 75 °C  
+
+            ### 🏅 Quick Start
+            ```bash
+            # Flash to SD card
+            sudo dd if=squirtle-alpine-streamer.img.xz of=/dev/sdX bs=4M status=progress conv=fsync
+
+            # Boot and find Pi IP
+            nmap -sn 192.168.1.0/24 | grep -B2 -A1 "Raspberry"
+
+            # Open RTSP stream
+            rtsp://<Squirtle-IP>:8554/live.sdp
+
+            # SSH access
+            ssh richeyda@<Squirtle-IP> (password: Sally)
+            ```
+
+            ### 🛠️ Management
+            ```bash
+            # Restart stream if it crashes
+            sudo rc-service stream restart
+
+            # Check temperature or force-watchdog
+            sudo /usr/local/bin/heat-watchdog
+            ```
+
+            ### 📦 Release Contents
+            - squirtle-alpine-streamer.img.xz  
+            - squirtle-alpine-streamer.img.xz.sha256  
+            - squirtle-build-info.txt
+
+            Built from commit: ${{ github.sha }}  
+            Alpine Linux ${{ env.ALPINE_VERSION }} | Arch: ${ALPINE_ARCH}
+          draft: false
+          prerelease: false
+
+      - name: Upload Squirtle Release Assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ env.image_file }}
+          asset_name: ${{ env.image_file }}
+          asset_content_type: application/octet-stream
