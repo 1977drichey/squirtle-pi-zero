@@ -140,8 +140,8 @@ jobs:
 
           # Configure Alpine repositories
           cat > /etc/apk/repositories << EOF
-          https://dl-cdn.alpinelinux.org/alpine/v3.19/main
-          https://dl-cdn.alpinelinux.org/alpine/v3.19/community
+          http://dl-3.alpinelinux.org/alpine/v3.19/main
+          http://dl-3.alpinelinux.org/alpine/v3.19/community
           EOF
 
                     # Retry until `apk update` succeeds (handles temporary CDN flakiness)
