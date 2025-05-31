@@ -1,4 +1,3 @@
-# .github/workflows/build-squirtle-alpine.yml
 name: Build Squirtle Alpine Streaming OS
 
 on:
