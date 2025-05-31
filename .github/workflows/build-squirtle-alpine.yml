@@ -141,10 +141,15 @@ jobs:
           # Configure Alpine repositories
           cat > /etc/apk/repositories << EOF
           http://dl-3.alpinelinux.org/alpine/v3.19/main
-          http://dl-3.alpinelinux.org/alpine/v3.19/community
-          EOF
+          http://dl-4.alpinelinux.org/alpine/v3.19/main
+          https://dl-cdn.alpinelinux.org/alpine/v3.19/main
 
-                    # Retry until `apk update` succeeds (handles temporary CDN flakiness)
+          http://dl-3.alpinelinux.org/alpine/v3.19/community
+          http://dl-4.alpinelinux.org/alpine/v3.19/community
+          https://dl-cdn.alpinelinux.org/alpine/v3.19/community
+          EOF       
+
+          # Retry until `apk update` succeeds (handles temporary CDN flakiness)
           counter=0
           until apk update; do
             counter=$((counter + 1))
