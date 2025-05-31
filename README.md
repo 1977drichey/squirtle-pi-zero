@@ -79,6 +79,24 @@ This workfl builds a minimal Alpine image with v4l2rtspserver, Wi-Fi auto-connec
 
 ## 🏆 League Badge
 
+1. Lean, Mean, Aqua-Lovin’ Machine
+
+We’ve stripped everything down to the bare essentials: Alpine’s tiny footprint, v4l2rtspserver’s razor-thin CPU usage, and a copper heatsink that could fry an egg (poor baby Pokémon egg notwithstanding). There’s no “bloat” here—only a single-purpose, 5 FPS RTSP cannon on legs. When battles heat up in mid-summer, every saved milliwatt and every degree below that 75 °C threshold counts.
+2. Thermal Watchdog = Safety Bubble
+
+Squirtle’s got that “heat-watchdog” script breathing down its shell—if it ever flirts with 75 °C, it’ll automatically reboot before frying its circuits. That kind of failsafe is like having an emergency Hyper Potion stashed in its pocket. Even if the Zero 2W sizzles under load, it won’t stay down. Reboot, recalibrate, and get right back to streaming.
+3. Simplicity Breeds Reliability
+
+No Motion detection, no heavy AI, no MediaMTX cooking the CPU—just raw, unadulterated RTSP. It’s a chicken-or-egg certainty: fewer moving parts means fewer things can break. As long as the Wi-Fi holds (NETGEAR42 / heavybug047—check!), the RTSP feed will flow. We’ve given Squirtle exactly one job—stream like its life depends on it—and it’s engineered to excel.
+🧐 Skeptical Side Note
+
+Nothing in life is 100 % guaranteed—especially when you’re juggling different Pi Zero revisions, USB cameras, and random summer temp spikes. We’ll need to test on both the Zero W and the Zero 2W, keep an eye on log files, and maybe fine-tune GPIO cooling or tweak the CPU governor if things get glitchy. A bit of debugging may be required—like any trainer worth their Poké Balls, we learn from each failed catch and strive to do better next time.
+🎉 Final Verdict
+
+Yes, I believe we will win—with a little perseverance, a dash of solder-smoke humor, and those watchful scripts in the background, Squirtle Pi will hold its ground and stream like a champ. So charge up those microSD cards, fire up the Actions on GitHub, and let’s show this summer who’s boss.
+
+Now go out there, Trainer—scoop up that RTSP bubble, and let Team Squirtle take home the trophy. 🌊🐢✨
+
 When you see a stable RTSP stream with zero CPU meltdown, you’ve earned the **Stream Master** badge. Strap in, Trainer—Squirtle Pi is about to make a splash!
 
 ---
