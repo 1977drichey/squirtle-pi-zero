@@ -99,99 +99,118 @@ jobs:
           sudo mount "${LOOP_DEVICE}p2" alpine-root/
           echo "✅ Image structure created"
 
-      - name: Install Alpine base system
-        run: |
-          set -e
-          echo "📦 Installing Alpine base system into rootfs..."
-          # Extract Alpine rootfs to alpine-root
-          sudo tar -xzf alpine-rootfs.tar.gz -C alpine-root/
-          # Bind-mount system dirs
-          sudo mount --bind /dev alpine-root/dev/
-          sudo mount --bind /proc alpine-root/proc/
-          sudo mount --bind /sys alpine-root/sys/
-          # Copy qemu for ARM emulation
-          sudo cp /usr/bin/qemu-arm-static alpine-root/usr/bin/
-          # Copy go2rtc binary
-          sudo cp go2rtc_arm alpine-root/usr/local/bin/go2rtc
-          sudo chmod +x alpine-root/usr/local/bin/go2rtc
-          # Chroot into alpine-root and configure packages/user/services
-          sudo chroot alpine-root /bin/sh << 'CHROOT_SCRIPT'
-          set -e
-          # Write CONSISTENT HTTP repositories (no mixing HTTP/HTTPS)
-          cat > /etc/apk/repositories << EOF
+      - name: Create custom Alpine image
+  run: |
+    set -e
+    echo "🏗️ Creating Squirtle Alpine streaming image..."
+    dd if=/dev/zero of="${IMAGE_NAME}.img" bs=1M count=1536
+    parted "${IMAGE_NAME}.img" mklabel msdos
+    parted "${IMAGE_NAME}.img" mkpart primary fat32 1MiB 128MiB
+    parted "${IMAGE_NAME}.img" set 1 boot on
+    parted "${IMAGE_NAME}.img" mkpart primary ext4 128MiB 100%
+    LOOP_DEVICE=$(sudo losetup --find --show "${IMAGE_NAME}.img")
+    echo "LOOP_DEVICE=$LOOP_DEVICE" >> $GITHUB_ENV
+    sleep 3
+    sudo partprobe "$LOOP_DEVICE"
+    sleep 2
+    sudo mkfs.fat -F 32 "${LOOP_DEVICE}p1"
+    sudo mkfs.ext4 "${LOOP_DEVICE}p2"
+    mkdir -p alpine-boot alpine-root
+    sudo mount "${LOOP_DEVICE}p1" alpine-boot/
+    sudo mount "${LOOP_DEVICE}p2" alpine-root/
+    echo "✅ Image structure created"
+
+- name: Install Alpine base system
+  run: |
+    set -e
+    echo "📦 Installing Alpine base system into rootfs..."
+    # Extract Alpine rootfs to alpine-root
+    sudo tar -xzf alpine-rootfs.tar.gz -C alpine-root/
+    # Bind-mount system dirs
+    sudo mount --bind /dev alpine-root/dev/
+    sudo mount --bind /proc alpine-root/proc/
+    sudo mount --bind /sys alpine-root/sys/
+    # Copy qemu for ARM emulation
+    sudo cp /usr/bin/qemu-arm-static alpine-root/usr/bin/
+    # Copy go2rtc binary
+    sudo cp go2rtc_arm alpine-root/usr/local/bin/go2rtc
+    sudo chmod +x alpine-root/usr/local/bin/go2rtc
+    # Chroot into alpine-root and configure packages/user/services
+    sudo chroot alpine-root /bin/sh << 'CHROOT_SCRIPT'
+    set -e
+    # Write CONSISTENT HTTP repositories (no mixing HTTP/HTTPS)
+    cat > /etc/apk/repositories << EOF
 http://dl-cdn.alpinelinux.org/alpine/v3.19/main
 http://dl-cdn.alpinelinux.org/alpine/v3.19/community
 EOF
 
-          # Update with retries and better error handling
-          echo "🔄 Updating package repositories..."
-          counter=0
-          max_attempts=5
-          until apk update || [ $counter -eq $max_attempts ]; do
-            counter=$((counter + 1))
-            echo "⚠️ apk update failed (attempt $counter/$max_attempts). Retrying in 10s..."
-            sleep 10
-            # Try alternate mirrors
-            if [ $counter -eq 3 ]; then
-              cat > /etc/apk/repositories << EOF
+    # Update with retries and better error handling
+    echo "🔄 Updating package repositories..."
+    counter=0
+    max_attempts=5
+    until apk update || [ \$counter -eq \$max_attempts ]; do
+      counter=\$((counter + 1))
+      echo "⚠️ apk update failed (attempt \$counter/\$max_attempts). Retrying in 10s..."
+      sleep 10
+      # Try alternate mirrors
+      if [ \$counter -eq 3 ]; then
+        cat > /etc/apk/repositories << EOF
 http://dl-4.alpinelinux.org/alpine/v3.19/main
 http://dl-4.alpinelinux.org/alpine/v3.19/community
 EOF
-            fi
-          done
+      fi
+    done
 
-          if [ $counter -eq $max_attempts ]; then
-            echo "❌ Failed to update repositories after $max_attempts attempts"
-            exit 1
-          fi
+    if [ \$counter -eq \$max_attempts ]; then
+      echo "❌ Failed to update repositories after \$max_attempts attempts"
+      exit 1
+    fi
 
-          # Install essential packages in proper order
-          echo "📦 Installing base system packages..."
-          apk add --no-cache alpine-base openrc
+    # Install essential packages in proper order
+    echo "📦 Installing base system packages..."
+    apk add --no-cache alpine-base openrc
 
-          echo "📦 Installing system utilities..."
-          apk add --no-cache \
-            openssh \
-            bash \
-            curl \
-            wget \
-            nano \
-            htop \
-            bc \
-            sudo \
-            ca-certificates
+    echo "📦 Installing system utilities..."
+    apk add --no-cache \
+      openssh \
+      bash \
+      curl \
+      wget \
+      nano \
+      htop \
+      bc \
+      sudo \
+      ca-certificates
 
-          echo "📦 Installing Pi-specific packages..."
-          apk add --no-cache \
-            linux-rpi \
-            raspberrypi \
-            rpi-eeprom
+    echo "📦 Installing Pi-specific packages..."
+    apk add --no-cache \
+      linux-rpi \
+      raspberrypi \
+      rpi-eeprom
 
-          echo "📦 Installing streaming packages..."
-          apk add --no-cache \
-            v4l-utils \
-            ffmpeg \
-            libressl
+    echo "📦 Installing streaming packages..."
+    apk add --no-cache \
+      v4l-utils \
+      ffmpeg \
+      libressl
 
-          # Create user 'richeyda'
-          echo "👤 Creating user richeyda..."
-          adduser -D -s /bin/bash richeyda
-          echo 'richeyda:Sally' | chpasswd
-          adduser richeyda wheel
-          echo '%wheel ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
+    # Create user 'richeyda'
+    echo "👤 Creating user richeyda..."
+    adduser -D -s /bin/bash richeyda
+    echo 'richeyda:Sally' | chpasswd
+    adduser richeyda wheel
+    echo '%wheel ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
 
-          # Enable SSH at boot
-          rc-update add sshd default
+    # Enable SSH at boot
+    rc-update add sshd default
 
-          # Clean up docs and cache
-          rm -rf /usr/share/man/* /usr/share/doc/* /var/cache/apk/*
+    # Clean up docs and cache
+    rm -rf /usr/share/man/* /usr/share/doc/* /var/cache/apk/*
 
-          echo "✅ Alpine base system installed successfully"
-
+    echo "✅ Alpine base system installed successfully"
 CHROOT_SCRIPT
 
-          echo "✅ Alpine base system configuration complete"
-          
+    echo "✅ Alpine base system configuration complete"          
       - name: Configure go2rtc streaming
         run: |
           echo "🎬 Configuring go2rtc for ultra-lightweight streaming..."
