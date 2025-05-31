@@ -103,31 +103,25 @@ jobs:
         run: |
           set -e
           echo "📦 Installing Alpine base system into rootfs..."
-
           # Extract Alpine rootfs to alpine-root
           sudo tar -xzf alpine-rootfs.tar.gz -C alpine-root/
-
           # Bind-mount system dirs
           sudo mount --bind /dev alpine-root/dev/
           sudo mount --bind /proc alpine-root/proc/
           sudo mount --bind /sys alpine-root/sys/
-
           # Copy qemu for ARM emulation
           sudo cp /usr/bin/qemu-arm-static alpine-root/usr/bin/
-
           # Copy go2rtc binary
           sudo cp go2rtc_arm alpine-root/usr/local/bin/go2rtc
           sudo chmod +x alpine-root/usr/local/bin/go2rtc
-
           # Chroot into alpine-root and configure packages/user/services
           sudo chroot alpine-root /bin/sh << 'CHROOT_SCRIPT'
           set -e
-
           # Write CONSISTENT HTTP repositories (no mixing HTTP/HTTPS)
-          cat > /etc/apk/repositories << 'REPO_EOF'
+          cat > /etc/apk/repositories << EOF
 http://dl-cdn.alpinelinux.org/alpine/v3.19/main
 http://dl-cdn.alpinelinux.org/alpine/v3.19/community
-REPO_EOF
+EOF
 
           # Update with retries and better error handling
           echo "🔄 Updating package repositories..."
@@ -139,10 +133,10 @@ REPO_EOF
             sleep 10
             # Try alternate mirrors
             if [ $counter -eq 3 ]; then
-              cat > /etc/apk/repositories << 'ALT_REPO_EOF'
+              cat > /etc/apk/repositories << EOF
 http://dl-4.alpinelinux.org/alpine/v3.19/main
 http://dl-4.alpinelinux.org/alpine/v3.19/community
-ALT_REPO_EOF
+EOF
             fi
           done
 
@@ -197,7 +191,7 @@ ALT_REPO_EOF
 CHROOT_SCRIPT
 
           echo "✅ Alpine base system configuration complete"
-
+          
       - name: Configure go2rtc streaming
         run: |
           echo "🎬 Configuring go2rtc for ultra-lightweight streaming..."
