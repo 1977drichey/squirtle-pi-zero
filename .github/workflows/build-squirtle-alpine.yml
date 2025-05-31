@@ -125,9 +125,10 @@ jobs:
 
           # Write CONSISTENT HTTP repositories (no mixing HTTP/HTTPS)
           cat > /etc/apk/repositories << 'REPO_EOF'
-      http://dl-cdn.alpinelinux.org/alpine/v3.19/main
-      http://dl-cdn.alpinelinux.org/alpine/v3.19/community
-       REPO_EOF
+
+http://dl-cdn.alpinelinux.org/alpine/v3.19/main
+http://dl-cdn.alpinelinux.org/alpine/v3.19/community
+          REPO_EOF
 
           # Update with retries and better error handling
           echo "🔄 Updating package repositories..."
