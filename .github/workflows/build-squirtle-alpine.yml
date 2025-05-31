@@ -116,8 +116,8 @@ jobs:
     sudo mount "${LOOP_DEVICE}p1" alpine-boot/
     sudo mount "${LOOP_DEVICE}p2" alpine-root/
     echo "✅ Image structure created"
-
-- name: Install Alpine base system
+    
+      - name: Install Alpine base system
   run: |
     set -e
     echo "📦 Installing Alpine base system into rootfs..."
