@@ -1,0 +1,14 @@
+#!/sbin/openrc-run
+
+name="Squirtle Stream Service"
+description="Launch v4l2rtspserver at boot"
+
+command="/usr/local/bin/stream-launcher.sh"
+command_user="richeyda"
+pidfile="/var/run/stream.pid"
+command_background="yes"
+
+depend() {
+    need net
+    after firewall
+}
