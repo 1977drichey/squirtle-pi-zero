@@ -1,6 +1,5 @@
 # .github/workflows/build-squirtle-alpine.yml
 # GitHub Actions workflow to build a minimal Alpine-based Squirtle Pi streaming image
-
 name: Build Squirtle Alpine Streaming OS
 
 on:
