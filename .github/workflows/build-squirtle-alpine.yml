@@ -140,8 +140,10 @@ jobs:
 
           # Configure Alpine repositories
           cat > /etc/apk/repositories << EOF
-          https://dl-cdn.alpinelinux.org/alpine/v3.19/main
-          https://dl-cdn.alpinelinux.org/alpine/v3.19/community
+          http://mirror1.hs-esslingen.de/pub/Mirrors/alpine/v3.19/main
+          http://mirror1.hs-esslingen.de/pub/Mirrors/alpine/v3.19/community
+          http://mirrors.ocf.berkeley.edu/alpine/v3.19/main
+          http://mirrors.ocf.berkeley.edu/alpine/v3.19/community 
           EOF
 
           apk update
